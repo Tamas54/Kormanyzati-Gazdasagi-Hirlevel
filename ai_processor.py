@@ -213,6 +213,26 @@ class GovernmentEconomicAnalyzer:
         except json.JSONDecodeError as e:
             print(f"❌ JSON parsing hiba: {e}")
             print(f"Részlet: {response.text[:500]}...")
+            
+            # ULTIMATE FALLBACK: Extract just the executive summary
+            try:
+                exec_match = re.search(r'"executive_summary":\s*"([^"]*)', response_text)
+                if exec_match:
+                    summary = exec_match.group(1)
+                    print(f"✅ Fallback: Extracted executive summary")
+                    return {
+                        "executive_summary": summary,
+                        "importance_score": 5,
+                        "urgency": "monitoring",
+                        "macro_impacts": {"gdp_effect": "N/A", "inflation_effect": "N/A", "budget_effect": "N/A", "currency_effect": "N/A"},
+                        "sectoral_analysis": {"affected_sectors": [], "company_examples": [], "employment_impact": "N/A"},
+                        "risks_opportunities": {"main_risks": [], "opportunities": [], "time_horizon": "N/A"},
+                        "policy_recommendations": [],
+                        "monitoring_points": [],
+                        "keywords_hu": []
+                    }
+            except:
+                pass
             return None
         except Exception as e:
             print(f"❌ Kormányzati elemzési hiba: {e}")
