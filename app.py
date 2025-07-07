@@ -628,24 +628,8 @@ def export_pdf():
         
         # Temp fájl létrehozása
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            if PDF_GENERATOR == 'weasyprint' and HTML:
-                # WeasyPrint használata
-                html_doc = HTML(string=html_content)
-                html_doc.write_pdf(tmp_file.name)
-            elif PDF_GENERATOR == 'pdfkit' and pdfkit:
-                # pdfkit használata (ha van wkhtmltopdf)
-                options = {
-                    'page-size': 'A4',
-                    'margin-top': '0.75in',
-                    'margin-right': '0.75in',
-                    'margin-bottom': '0.75in',
-                    'margin-left': '0.75in',
-                    'encoding': "UTF-8",
-                    'no-outline': None
-                }
-                pdfkit.from_string(html_content, tmp_file.name, options=options)
-            else:
-                return jsonify({'success': False, 'message': 'PDF generátor nem elérhető'})
+            # Production-ben nincs PDF
+            return jsonify({'success': False, 'message': 'PDF export nem elérhető production környezetben. Használd lokálisan!'})
             
             return send_file(
                 tmp_file.name,
