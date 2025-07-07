@@ -2,11 +2,26 @@ import os
 import re
 import json
 from typing import List, Dict, Optional, Tuple
-import google.generativeai as genai
-from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
 import hashlib
+
+# Robust AI imports with fallbacks
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Gemini import error: {e}")
+    genai = None
+    GEMINI_AVAILABLE = False
+
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ OpenAI import error: {e}")
+    OpenAI = None
+    OPENAI_AVAILABLE = False
 
 load_dotenv()
 
@@ -21,23 +36,31 @@ class GovernmentEconomicAnalyzer:
     
     def __init__(self):
         # Gemini 2.5 Flash inicializálása
-        gemini_api_key = os.getenv("GEMINI_API_KEY")
-        if gemini_api_key:
-            genai.configure(api_key=gemini_api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')
-            print("✅ Gemini 2.5 Flash inicializálva")
+        if GEMINI_AVAILABLE:
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            if gemini_api_key:
+                genai.configure(api_key=gemini_api_key)
+                self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+                print("✅ Gemini 2.5 Flash inicializálva")
+            else:
+                self.gemini_model = None
+                print("⚠️ GEMINI_API_KEY hiányzik!")
         else:
             self.gemini_model = None
-            print("⚠️ GEMINI_API_KEY hiányzik!")
+            print("⚠️ google-generativeai package nem elérhető!")
         
         # OpenAI GPT-4o mini inicializálása
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if openai_api_key:
-            self.openai_client = OpenAI(api_key=openai_api_key)
-            print("✅ OpenAI GPT-4o mini inicializálva")
+        if OPENAI_AVAILABLE:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if openai_api_key:
+                self.openai_client = OpenAI(api_key=openai_api_key)
+                print("✅ OpenAI GPT-4o mini inicializálva")
+            else:
+                self.openai_client = None
+                print("⚠️ OPENAI_API_KEY hiányzik!")
         else:
             self.openai_client = None
-            print("⚠️ OPENAI_API_KEY hiányzik!")
+            print("⚠️ openai package nem elérhető!")
     
     def _get_full_article_content(self, article: Dict) -> str:
         """Teljes cikk tartalom összeállítása"""
