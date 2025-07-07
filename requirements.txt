@@ -4,8 +4,9 @@ feedparser==6.0.11
 requests==2.31.0
 python-dotenv==1.0.0
 googletrans==3.0.0
-google-generativeai==0.3.2
-openai==1.8.0
+google-cloud-aiplatform
+google-generativeai
+openai
 schedule==1.2.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
