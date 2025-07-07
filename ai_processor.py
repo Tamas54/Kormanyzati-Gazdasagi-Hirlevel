@@ -349,15 +349,18 @@ class GovernmentEconomicAnalyzer:
     
     def process_articles_for_government(self, articles: List[Dict]) -> Tuple[List[Dict], str]:
         """
-        Teljes kormányzati feldolgozás
+        Teljes kormányzati feldolgozás - STREAMELT VERZIÓ
         """
         print(f"\n🏛️ Kormányzati elemzés indítása {len(articles)} cikkre...")
         
         processed_articles = []
         
-        # Minden cikk részletes elemzése
-        for i, article in enumerate(articles):
-            print(f"Részletes elemzés: {i+1}/{len(articles)} - {article.get('source', 'N/A')}")
+        # Import newsletter_data for streaming updates
+        from app import newsletter_data
+        
+        # Minden cikk részletes elemzése - ÉS AZONNAL MENTJÜK
+        for i, article in enumerate(articles[:15]):  # MAX 15 cikk a timeout miatt
+            print(f"Részletes elemzés: {i+1}/{min(15, len(articles))} - {article.get('source', 'N/A')}")
             
             analysis = self.analyze_for_government(article)
             if analysis:
@@ -369,6 +372,16 @@ class GovernmentEconomicAnalyzer:
                 article['urgency'] = 'monitoring'
             
             processed_articles.append(article)
+            
+            # STREAMING UPDATE - Azonnal frissítjük a frontend számára
+            if i % 3 == 0:  # Minden 3. cikk után
+                newsletter_data['articles'] = [
+                    self.format_article_for_display(a) 
+                    for a in sorted(processed_articles, 
+                                  key=lambda x: x.get('importance_score', 5), 
+                                  reverse=True)[:10]
+                ]
+                print(f"💾 Részeredmény mentve: {len(newsletter_data['articles'])} cikk")
         
         # Rendezés fontosság szerint
         processed_articles.sort(
@@ -379,10 +392,10 @@ class GovernmentEconomicAnalyzer:
             reverse=True
         )
         
-        # Vezetői összefoglaló generálása
+        # Vezetői összefoglaló generálása CSAK A FELDOLGOZOTT CIKKEKBŐL
         executive_briefing = self.generate_executive_briefing(processed_articles)
         
-        print(f"✅ Kormányzati elemzés kész!")
+        print(f"✅ Kormányzati elemzés kész! ({len(processed_articles)} cikk feldolgozva)")
         return processed_articles, executive_briefing
     
     def format_article_for_display(self, article: Dict) -> Dict:
