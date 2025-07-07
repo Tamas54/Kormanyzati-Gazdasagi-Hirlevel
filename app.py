@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
 import feedparser
 import requests
@@ -11,11 +11,32 @@ import schedule
 import threading
 import time
 from ai_processor import GovernmentEconomicAnalyzer
+from database import init_database, is_database_available
+from database_manager import db_manager
+from flask import send_file
+import tempfile
+try:
+    import pdfkit
+    PDF_GENERATOR = 'pdfkit'
+except ImportError:
+    pdfkit = None
+    
+try:
+    from weasyprint import HTML
+    PDF_GENERATOR = 'weasyprint'
+except ImportError:
+    HTML = None
+    
+if not pdfkit and not HTML:
+    print("⚠️ Nincs PDF generátor! Telepítsd: pip install weasyprint")
 
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+# Teszt mód a gyorsabb fejlesztéshez
+TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
 
 # Globális változók a hírek tárolására
 newsletter_data = {
@@ -25,6 +46,12 @@ newsletter_data = {
     'update_count': 0,
     'processing_status': 'idle'
 }
+
+# Database inicializálása
+if init_database():
+    print("✅ PostgreSQL adatbázis kész")
+else:
+    print("⚠️ PostgreSQL nem elérhető - memória módban fut")
 
 # AI elemző inicializálása
 ai_analyzer = GovernmentEconomicAnalyzer()
@@ -176,6 +203,11 @@ def translate_text(text, max_retries=3):
 
 def fetch_and_process_news():
     """Hírek lekérése és feldolgozása kormányzati elemzéssel"""
+    # Ellenorizzük, hogy nem fut-e már
+    if newsletter_data.get('processing_status') == 'processing':
+        print("⚠️ Feldolgozás már folyamatban...")
+        return
+    
     newsletter_data['processing_status'] = 'processing'
     print(f"\n{'='*60}")
     print(f"🏛️ KORMÁNYZATI GAZDASÁGI HÍRLEVÉL FRISSÍTÉSE")
@@ -239,18 +271,18 @@ def fetch_and_process_news():
         print(f"\n🤖 Kormányzati AI elemzés indítása...")
         processed_articles, executive_briefing = ai_analyzer.process_articles_for_government(all_articles)
         
-        # Formázott cikkek előkészítése
-        formatted_articles = [
-            ai_analyzer.format_article_for_display(article)
-            for article in processed_articles[:20]  # Top 20 cikk
-        ]
-        
-        # Globális változók frissítése
-        newsletter_data['articles'] = formatted_articles
-        newsletter_data['executive_briefing'] = executive_briefing or "⚠️ Vezetői összefoglaló nem elérhető - ellenőrizze az OpenAI API kulcsot."
+        if not is_database_available():
+            # Fallback: memória mód
+            formatted_articles = [
+                ai_analyzer.format_article_for_display(article)
+                for article in processed_articles[:20]
+            ]
+            newsletter_data['articles'] = formatted_articles
+            newsletter_data['executive_briefing'] = executive_briefing or "⚠️ Vezetői összefoglaló nem elérhető"
     else:
-        newsletter_data['articles'] = []
-        newsletter_data['executive_briefing'] = "Nincs feldolgozható cikk."
+        if not is_database_available():
+            newsletter_data['articles'] = []
+            newsletter_data['executive_briefing'] = "Nincs feldolgozható cikk."
     
     newsletter_data['last_update'] = datetime.now().isoformat()
     newsletter_data['update_count'] += 1
@@ -265,14 +297,42 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(60)
 
-# Ütemezett feladatok beállítása
-schedule.every(6).hours.do(fetch_and_process_news)
+# Ütemezett feladatok beállítása - KÉT KÜLÖN CIKLUS
+def fetch_rss_only():
+    """Csak RSS hírek lekérése elemzés nélkül (30 percenként)"""
+    print(f"\n📰 RSS hírek frissítése: {datetime.now().strftime('%H:%M:%S')}")
+    # Itt lehetne RSS cache frissítés, de most még nincs külön implementálva
+
+def fetch_and_analyze():
+    """Teljes elemzés új cikkekkel (2 óránként)"""
+    fetch_and_process_news()
+
+# RSS frissítés: 30 percenként
+schedule.every(30).minutes.do(fetch_rss_only)
+
+# AI elemzés: 2 óránként  
+schedule.every(2).hours.do(fetch_and_analyze)
 
 # Első futtatás háttérszálban 2 másodperc múlva
 def delayed_first_run():
-    """Késleltetett első futtatás"""
+    """Késleltetett első futtatás - csak ha nincs friss adat"""
     time.sleep(2)
-    print("\n🚀 Első hírek betöltése indul...")
+    try:
+        test_mode_text = '(TESZT MÓD)' if TEST_MODE else ''
+    except NameError:
+        test_mode_text = ''
+    
+    # Ellenőrizzük van-e már friss adat az adatbázisban
+    if is_database_available():
+        try:
+            articles = db_manager.get_latest_articles(5)
+            if articles:
+                print(f"\n💾 {len(articles)} cikk található az adatbázisban - első feldolgozás kihagyása")
+                return
+        except Exception as e:
+            print(f"\n⚠️ Adatbázis ellenőrzési hiba: {e}")
+    
+    print(f"\n🚀 Első hírek betöltése indul... {test_mode_text}")
     fetch_and_process_news()
 
 # Első futtatás háttérszálban
@@ -291,11 +351,36 @@ def index():
 @app.route('/api/articles')
 def get_articles():
     """API végpont a cikkek lekéréséhez"""
-    return jsonify(newsletter_data)
+    if is_database_available():
+        # ADATBÁZISBÓL TOP 30-AT BETÖLTÜNK (fontosság szerint)
+        articles = db_manager.get_latest_articles(30)
+        briefing = db_manager.get_latest_executive_briefing()
+        
+        # FRISSÍTJÜK A NEWSLETTER_DATA-T IS
+        newsletter_data['articles'] = articles
+        newsletter_data['executive_briefing'] = briefing['content'] if briefing else "Nincs vezetői összefoglaló"
+        newsletter_data['last_update'] = briefing['created_at'] if briefing else None
+        
+        return jsonify({
+            'articles': articles,
+            'executive_briefing': briefing['content'] if briefing else "Nincs vezetői összefoglaló",
+            'last_update': briefing['created_at'] if briefing else None,
+            'processing_status': newsletter_data.get('processing_status', 'idle')
+        })
+    else:
+        # Fallback: memória mód
+        return jsonify(newsletter_data)
 
 @app.route('/api/refresh', methods=['POST'])
 def refresh_articles():
     """Manuális frissítés"""
+    if newsletter_data.get('processing_status') == 'processing':
+        return jsonify({'success': False, 'message': 'Feldolgozás már folyamatban...'})
+    
+    # Úresetünk mindent a duplikáció elkerülésére
+    newsletter_data['articles'] = []
+    newsletter_data['executive_briefing'] = ''
+    
     fetch_and_process_news()
     return jsonify({'success': True, 'message': 'Hírek frissítve'})
 
@@ -352,6 +437,242 @@ def get_rss_sources():
     
     return jsonify({'sources': sources_with_articles})
 
+@app.route('/api/test-refresh', methods=['POST'])
+def test_refresh():
+    """Gyors teszt frissítés"""
+    global TEST_MODE
+    TEST_MODE = True
+    
+    if newsletter_data.get('processing_status') == 'processing':
+        return jsonify({'success': False, 'message': 'Feldolgozás már folyamatban...'})
+    
+    # Úresetünk mindent
+    newsletter_data['articles'] = []
+    newsletter_data['executive_briefing'] = ''
+    
+    fetch_and_process_news()
+    return jsonify({'success': True, 'message': 'Teszt frissítés elindítva (3 forrás, 3 cikk)'})
+
+@app.route('/api/cleanup', methods=['POST'])
+def cleanup_database():
+    """Régi cikkek takarítása"""
+    if not is_database_available():
+        return jsonify({'success': False, 'message': 'Adatbázis nem elérhető'})
+    
+    data = request.get_json() or {}
+    days = int(data.get('days', 30))
+    deleted = db_manager.cleanup_old_articles(days)
+    return jsonify({'success': True, 'message': f'{deleted} régi cikk törölve'})
+
+@app.route('/api/search')
+def search_articles():
+    """Keresés a cikkekben"""
+    if not is_database_available():
+        return jsonify({'success': False, 'message': 'Adatbázis nem elérhető'})
+    
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 2:
+        return jsonify({'success': False, 'message': 'Minimum 2 karakter szükséges'})
+    
+    # Keresés az összes cikkben (nem csak a top 30-ban!)
+    all_articles = db_manager.get_latest_articles(1000)
+    results = []
+    
+    query_lower = query.lower()
+    for article in all_articles:
+        # Keresés címben, összefoglalóban, forrásban
+        title = (article.get('title', '') or '').lower()
+        summary = (article.get('executive_summary', '') or '').lower()
+        source = (article.get('source', '') or '').lower()
+        
+        if (query_lower in title or 
+            query_lower in summary or 
+            query_lower in source):
+            results.append(article)
+    
+    return jsonify({
+        'success': True,
+        'query': query,
+        'results': results[:50],  # Max 50 találat
+        'total': len(results)
+    })
+
+@app.route('/api/db-status')
+def database_status():
+    """Adatbázis állapot"""
+    if is_database_available():
+        article_count = len(db_manager.get_latest_articles(1000))
+        briefing = db_manager.get_latest_executive_briefing()
+        return jsonify({
+            'database_available': True,
+            'article_count': article_count,
+            'last_briefing': briefing['created_at'] if briefing else None
+        })
+    else:
+        return jsonify({'database_available': False})
+
+@app.route('/api/export-pdf')
+def export_pdf():
+    """PDF export - Kormányzati jelentés"""
+    if not is_database_available():
+        return jsonify({'success': False, 'message': 'Adatbázis nem elérhető'})
+    
+    try:
+        # Adatok lekérése
+        articles = db_manager.get_latest_articles(30)
+        briefing = db_manager.get_latest_executive_briefing()
+        
+        # HTML template generálása
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="hu">
+        <head>
+            <meta charset="UTF-8">
+            <title>Kormányzati Külgazdasági Szemle</title>
+            <style>
+                body {{ font-family: 'Arial', sans-serif; margin: 0; padding: 20px; line-height: 1.4; }}
+                .header {{ text-align: center; margin-bottom: 30px; border-bottom: 2px solid #1a237e; padding-bottom: 20px; }}
+                .header h1 {{ color: #1a237e; font-size: 28px; margin: 0; }}
+                .header .date {{ color: #666; font-size: 14px; margin-top: 10px; }}
+                .executive-summary {{ background: #f8f9fa; padding: 20px; margin-bottom: 30px; border-left: 4px solid #1a237e; }}
+                .executive-summary h2 {{ color: #1a237e; font-size: 20px; margin-top: 0; }}
+                .articles-section h2 {{ color: #1a237e; font-size: 18px; margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }}
+                .article {{ margin-bottom: 25px; padding: 15px; border: 1px solid #e0e0e0; page-break-inside: avoid; }}
+                .article-title {{ font-size: 16px; font-weight: bold; color: #1a237e; margin-bottom: 8px; }}
+                .article-meta {{ font-size: 12px; color: #666; margin-bottom: 10px; }}
+                .article-summary {{ font-size: 14px; margin-bottom: 10px; }}
+                .analysis-section {{ margin-top: 15px; }}
+                .analysis-section h4 {{ color: #444; font-size: 14px; margin-bottom: 8px; }}
+                .analysis-list {{ font-size: 12px; margin-left: 15px; }}
+                .importance-badge {{ background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 10px; font-size: 11px; }}
+                .urgency-badge {{ background: #fff3e0; color: #e65100; padding: 2px 8px; border-radius: 10px; font-size: 11px; }}
+                .footer {{ margin-top: 30px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #ddd; padding-top: 15px; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🏛️ Kormányzati Külgazdasági Szemle</h1>
+                <div class="date">Generálva: {datetime.now().strftime('%Y. %m. %d. %H:%M')}</div>
+            </div>
+        """
+        
+        # Vezetői összefoglaló
+        if briefing:
+            html_content += f"""
+            <div class="executive-summary">
+                <h2>📋 Vezetői Összefoglaló</h2>
+                {briefing['content']}
+            </div>
+            """
+        
+        # Részletes elemzések
+        html_content += """
+            <div class="articles-section">
+                <h2>📊 Részletes Elemzések</h2>
+        """
+        
+        for i, article in enumerate(articles, 1):
+            analysis = article.get('full_analysis', {})
+            html_content += f"""
+                <div class="article">
+                    <div class="article-title">{i}. {article.get('title', 'Nincs cím')}</div>
+                    <div class="article-meta">
+                        <span class="importance-badge">Fontosság: {article.get('importance_score', 'N/A')}/10</span>
+                        <span class="urgency-badge">{article.get('urgency', 'N/A')}</span>
+                        | Forrás: {article.get('source', 'N/A')} | {article.get('pub_date', 'N/A')[:10]}
+                    </div>
+                    <div class="article-summary">{article.get('executive_summary', 'Nincs összefoglaló')}</div>
+            """
+            
+            # Makrogazdasági hatások
+            if analysis.get('macro_impacts'):
+                macro = analysis['macro_impacts']
+                html_content += """
+                    <div class="analysis-section">
+                        <h4>🇭🇺 Magyarországi Makrogazdasági Hatások</h4>
+                        <div class="analysis-list">
+                """
+                for key, value in macro.items():
+                    if value and value != 'N/A':
+                        # TELJES SZÖVEG, nem levágva!
+                        html_content += f"<div style='margin-bottom: 8px;'><strong>{key.replace('_', ' ').title()}:</strong> {value}</div>"
+                html_content += "</div></div>"
+            
+            # Szektorális elemzés
+            if analysis.get('sectoral_analysis'):
+                sectoral = analysis['sectoral_analysis']
+                html_content += """
+                    <div class="analysis-section">
+                        <h4>🏭 Szektorális Elemzés</h4>
+                        <div class="analysis-list">
+                """
+                if sectoral.get('affected_sectors'):
+                    html_content += f"<div><strong>Érintett szektorok:</strong> {', '.join(sectoral['affected_sectors'])}</div>"
+                if sectoral.get('employment_impact'):
+                    # TELJES SZÖVEG, nem levágva!
+                    html_content += f"<div style='margin-bottom: 8px;'><strong>Munkaerőpiaci hatás:</strong> {sectoral['employment_impact']}</div>"
+                html_content += "</div></div>"
+            
+            html_content += "</div>"
+        
+        html_content += """
+            </div>
+            <div class="footer">
+                <p>Kormányzati Külgazdasági Szemle - Automatikusan generált jelentés</p>
+                <p>🤖 Generated with Claude Code | Co-Authored-By: Claude</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # PDF generálás
+        filename = f"Kormanyzati_Szemle_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+        
+        # Temp fájl létrehozása
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            if PDF_GENERATOR == 'weasyprint' and HTML:
+                # WeasyPrint használata
+                html_doc = HTML(string=html_content)
+                html_doc.write_pdf(tmp_file.name)
+            elif PDF_GENERATOR == 'pdfkit' and pdfkit:
+                # pdfkit használata (ha van wkhtmltopdf)
+                options = {
+                    'page-size': 'A4',
+                    'margin-top': '0.75in',
+                    'margin-right': '0.75in',
+                    'margin-bottom': '0.75in',
+                    'margin-left': '0.75in',
+                    'encoding': "UTF-8",
+                    'no-outline': None
+                }
+                pdfkit.from_string(html_content, tmp_file.name, options=options)
+            else:
+                return jsonify({'success': False, 'message': 'PDF generátor nem elérhető'})
+            
+            return send_file(
+                tmp_file.name,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='application/pdf'
+            )
+            
+    except Exception as e:
+        print(f"❌ PDF export hiba: {{e}}")
+        return jsonify({{'success': False, 'message': f'PDF generálási hiba: {{str(e)}}'}})
+
 if __name__ == '__main__':
+    print(f"\n🔧 Teszt mód: {'BE' if TEST_MODE else 'KI'}")
+    print(f"💾 Adatbázis: {'PostgreSQL' if is_database_available() else 'Memória mód'}")
+    print("\n🔄 API Endpoints:")
+    print("  POST /api/refresh - Teljes frissítés")
+    print("  POST /api/test-refresh - Gyors teszt frissítés (3 forrás, 3 cikk)")
+    print("  POST /api/cleanup - Régi cikkek takarítása")
+    print("  GET /api/search?q=keyword - Keresés cikkekben")
+    print("  GET /api/export-pdf - PDF letöltés")
+    print("  GET /api/db-status - Adatbázis állapot")
+    print("\n🌍 Environment variables:")
+    print("  TEST_MODE=true - Gyors teszt mód")
+    print("  DATABASE_URL=postgresql://... - PostgreSQL kapcsolat\n")
+    
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)

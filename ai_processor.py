@@ -98,15 +98,20 @@ class GovernmentEconomicAnalyzer:
         
         KÖTELEZŐ ELEMZÉSI SZEMPONTOK:
         
+        0. MAGYAR CÍM
+           - Adj egy rövid, tömör magyar címet a hírnek (max 80 karakter)
+           - A cím legyen informatív és szakszerű
+        
         1. VEZETŐI ÖSSZEFOGLALÓ (3-5 mondat)
            - A hír lényege és azonnali relevanciája
            - Miért fontos ezt MOST tudni a döntéshozóknak
         
         2. MAKROGAZDASÁGI HATÁSOK
-           - Közvetlen hatás a magyar gazdaságra
-           - Közvetett hatások és tovagyűrűző következmények
-           - Hatás a költségvetésre, inflációra, GDP-re
-           - Devizapiaci következmények (forint árfolyam)
+           - Közvetlen és közvetett hatások a magyar gazdaságra
+           - Lehetséges költségvetési következmények
+           - Inflációs és GDP hatások becslése
+           - Devizapiaci kockázatok és lehetőségek
+           - Időhorizont: rövid, közép és hosszú távú hatások
         
         3. SZEKTORÁLIS ELEMZÉS
            - Mely magyar gazdasági szektorokat érinti
@@ -123,10 +128,11 @@ class GovernmentEconomicAnalyzer:
            - Kihasználható lehetőségek
            - Időhorizont (rövid/közép/hosszú táv)
         
-        6. SZAKPOLITIKAI JAVASLATOK
-           - Lehetséges kormányzati válaszlépések
-           - Szabályozási javaslatok
-           - Kommunikációs szempontok
+        6. SZAKPOLITIKAI MEGFONTOLÁSOK
+           - Lehetséges válaszopciók elemzése
+           - Szabályozási kihívások és lehetőségek
+           - Stakeholder érintettség
+           - Nemzetközi koordináció szükségessége
         
         7. MONITORING PONTOK
            - Mit kell figyelni a következő időszakban
@@ -138,6 +144,7 @@ class GovernmentEconomicAnalyzer:
         
         Válaszolj JSON formátumban:
         {{
+            "hungarian_title": "magyar cím",
             "executive_summary": "vezetői összefoglaló",
             "importance_score": <1-10>,
             "urgency": "azonnali/24h/1hét/monitoring",
@@ -162,9 +169,9 @@ class GovernmentEconomicAnalyzer:
                 "opportunities": ["lehetőség1", "lehetőség2"],
                 "time_horizon": "rövid/közép/hosszú táv"
             }},
-            "policy_recommendations": [
-                "javaslat1",
-                "javaslat2"
+            "policy_considerations": [
+                "megfontolás1",
+                "megfontolás2"
             ],
             "monitoring_points": [
                 "figyelendő1",
@@ -183,30 +190,35 @@ class GovernmentEconomicAnalyzer:
             if "THOUGHT:" in response_text:
                 response_text = re.sub(r'THOUGHT:.*?(?=\{)', '', response_text, flags=re.DOTALL)
             
-            # Find JSON block more precisely
-            json_match = re.search(r'\{[^}]*"executive_summary"[^}]*\}', response_text, re.DOTALL)
-            if not json_match:
-                # Fallback: try to find any complete JSON object
-                json_match = re.search(r'\{(?:[^{}]|{[^{}]*})*\}', response_text, re.DOTALL)
-            
-            if json_match:
-                json_text = json_match.group(0)
+            # Find COMPLETE JSON block - not just first level!
+            json_start = response_text.find('{')
+            if json_start != -1:
+                # Count braces to find complete JSON
+                brace_count = 0
+                json_end = json_start
+                for i, char in enumerate(response_text[json_start:], json_start):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = i + 1
+                            break
+                
+                json_text = response_text[json_start:json_end]
+                
                 # Clean up common JSON issues
                 json_text = re.sub(r',(\s*[}\]])', r'\1', json_text)  # Remove trailing commas
                 json_text = re.sub(r'[\n\r\t]', ' ', json_text)  # Remove newlines
                 
-                # Fix truncated JSON - add missing closing braces
-                open_braces = json_text.count('{')
-                close_braces = json_text.count('}')
-                if open_braces > close_braces:
-                    json_text += '}' * (open_braces - close_braces)
-                
-                # Fix truncated strings - add missing quotes
-                if json_text.count('"') % 2 == 1:
-                    json_text += '"'
-                    
-                analysis = json.loads(json_text)
-                return analysis
+                try:
+                    analysis = json.loads(json_text)
+                    print(f"✅ TELJES JSON elemzés sikeresen feldolgozva ({len(analysis)} mező)")
+                    return analysis
+                except json.JSONDecodeError as e:
+                    print(f"❌ JSON parsing hiba: {e}")
+                    print(f"JSON részlet: {json_text[:200]}...")
+                    return None
             else:
                 print(f"❌ Nem található JSON válasz a Gemini kimenetében")
                 return None
@@ -221,13 +233,14 @@ class GovernmentEconomicAnalyzer:
                     summary = exec_match.group(1)
                     print(f"✅ Fallback: Extracted executive summary")
                     return {
+                        "hungarian_title": "Gazdasági hír",
                         "executive_summary": summary,
                         "importance_score": 5,
                         "urgency": "monitoring",
                         "macro_impacts": {"gdp_effect": "N/A", "inflation_effect": "N/A", "budget_effect": "N/A", "currency_effect": "N/A"},
                         "sectoral_analysis": {"affected_sectors": [], "company_examples": [], "employment_impact": "N/A"},
                         "risks_opportunities": {"main_risks": [], "opportunities": [], "time_horizon": "N/A"},
-                        "policy_recommendations": [],
+                        "policy_considerations": [],
                         "monitoring_points": [],
                         "keywords_hu": []
                     }
@@ -311,23 +324,25 @@ class GovernmentEconomicAnalyzer:
         [EU, USA, Kína, energiapiacok, devizaárfolyamok stb.]
         </ul>
         
-        <h4>⏳ SÜRGŐS KORMÁNYZATI INTÉZKEDÉSEK</h4>
+        <h4>🔍 MEGFONTOLÁSRA JAVASOLT TERÜLETEK</h4>
         <ol>
-        [Konkrét lépések, határidők, felelős minisztériumok]
+        [Elemzési szempontok, figyelendő területek, lehetséges irányok]
         </ol>
         
-        <h4>📊 FIGYELENDŐ INDIKÁTOROK (következő 48 óra)</h4>
+        <h4>📊 FIGYELENDŐ INDIKÁTOROK</h4>
         <ul>
-        [Konkrét mutatók, küszöbértékek, figyelmeztetési szintek]
+        [Piaci mutatók, gazdasági adatok, tőzsdei mozgások - a hírekből]
         </ul>
         
         KÖVETELMÉNYEK:
-        - Használj konkrét számadatokat, százalékokat, összegeket
-        - Hivatkozz a forrásokra (Bloomberg, Reuters, stb.)
-        - Jelöld meg a sürgősségi szinteket
+        - CSAK A FENTI HÍREKBŐL DOLGOZZ! Ne találj ki új információkat!
+        - Ha nincs konkrét adat egy hírben, ne találj ki számokat
+        - Használd a hírekből származó információkat és elemzéseket
+        - NE találj ki határidőket, minisztériumokat vagy konkrét intézkedéseket
+        - Ehelyett: javasolj irányokat, megfontolásokat, figyelendő területeket
         - HTML formázást használj (h3, h4, ul, ol, strong, em)
         - Legalább 800-1000 szó legyen
-        - Kormányzati döntéshozói szemlélet
+        - Elemzői, NEM döntéshozói szemlélet
         """
         
         try:
@@ -349,39 +364,75 @@ class GovernmentEconomicAnalyzer:
     
     def process_articles_for_government(self, articles: List[Dict]) -> Tuple[List[Dict], str]:
         """
-        Teljes kormányzati feldolgozás - STREAMELT VERZIÓ
+        Teljes kormányzati feldolgozás - DATABASE VERZIÓ
         """
         print(f"\n🏛️ Kormányzati elemzés indítása {len(articles)} cikkre...")
         
         processed_articles = []
         
-        # Import newsletter_data for streaming updates
-        from app import newsletter_data
+        # Import database manager
+        from database_manager import db_manager
         
-        # Minden cikk részletes elemzése - ÉS AZONNAL MENTJÜK
-        for i, article in enumerate(articles[:15]):  # MAX 15 cikk a timeout miatt
-            print(f"Részletes elemzés: {i+1}/{min(15, len(articles))} - {article.get('source', 'N/A')}")
+        # Start processing status
+        db_manager.start_processing()
+        
+        # Import test mode safely
+        try:
+            from app import TEST_MODE
+            # MINDEN új cikket elemzünk, nem limit!
+            max_articles_to_analyze = 3 if TEST_MODE else len(articles)
+        except ImportError:
+            max_articles_to_analyze = len(articles)
+        
+        # EGYSZER betöltjük az összes meglévő cikket (GYORSABB!)
+        existing_articles = db_manager.get_latest_articles(1000)
+        existing_analyses = {article.get('id'): article.get('full_analysis') for article in existing_articles if article.get('full_analysis')}
+        print(f"📊 {len(existing_analyses)} meglévő elemzés az adatbázisban")
+        
+        # Minden cikk részletes elemzése - CSAK HA NINCS MÉG ELEMZÉS
+        for i, article in enumerate(articles[:max_articles_to_analyze]):
+            article_id = article.get('id')
+            existing_analysis = existing_analyses.get(article_id)
             
-            analysis = self.analyze_for_government(article)
-            if analysis:
-                article['ai_analysis'] = analysis
-                article['importance_score'] = analysis.get('importance_score', 5)
-                article['urgency'] = analysis.get('urgency', 'monitoring')
+            if existing_analysis:
+                print(f"Meglévő elemzés: {i+1}/{min(max_articles_to_analyze, len(articles))} - {article.get('source', 'N/A')} (KIHAGYVA)")
+                # Használjuk a meglévő elemzést
+                article['ai_analysis'] = existing_analysis
+                article['importance_score'] = existing_analysis.get('importance_score', 5)
+                article['urgency'] = existing_analysis.get('urgency', 'monitoring')
             else:
-                article['importance_score'] = 5
-                article['urgency'] = 'monitoring'
+                print(f"Új elemzés: {i+1}/{min(max_articles_to_analyze, len(articles))} - {article.get('source', 'N/A')}")
+                
+                analysis = self.analyze_for_government(article)
+                if analysis:
+                    article['ai_analysis'] = analysis
+                    article['importance_score'] = analysis.get('importance_score', 5)
+                    article['urgency'] = analysis.get('urgency', 'monitoring')
+                else:
+                    article['importance_score'] = 5
+                    article['urgency'] = 'monitoring'
+                
+                # DATABASE SAVE - Csak új elemzéseket mentjük
+                db_manager.save_article(article, analysis)
             
             processed_articles.append(article)
             
-            # STREAMING UPDATE - Azonnal frissítjük a frontend számára
-            if i % 3 == 0:  # Minden 3. cikk után
+            try:
+                from app import TEST_MODE
+                update_frequency = 1 if TEST_MODE else 3
+            except ImportError:
+                update_frequency = 3
+            if i % update_frequency == 0:
+                print(f"💾 {i+1} cikk mentve az adatbázisba")
+                
+                # STREAMING: MINDIG frissítjük a newsletter_data-t
+                from app import newsletter_data
                 newsletter_data['articles'] = [
                     self.format_article_for_display(a) 
                     for a in sorted(processed_articles, 
                                   key=lambda x: x.get('importance_score', 5), 
                                   reverse=True)[:10]
                 ]
-                print(f"💾 Részeredmény mentve: {len(newsletter_data['articles'])} cikk")
         
         # Rendezés fontosság szerint
         processed_articles.sort(
@@ -395,6 +446,21 @@ class GovernmentEconomicAnalyzer:
         # Vezetői összefoglaló generálása CSAK A FELDOLGOZOTT CIKKEKBŐL
         executive_briefing = self.generate_executive_briefing(processed_articles)
         
+        # Save executive briefing to database
+        if executive_briefing:
+            db_manager.save_executive_briefing(executive_briefing, len(processed_articles))
+        
+        # Mark processing as completed
+        db_manager.complete_processing(len(processed_articles))
+        
+        # VÉGSŐ FRISSÍTÉS: newsletter_data betöltése az adatbázisból (TOP 30)
+        from app import newsletter_data
+        if db_manager.available:
+            db_articles = db_manager.get_latest_articles(30)
+            db_briefing = db_manager.get_latest_executive_briefing()
+            newsletter_data['articles'] = db_articles
+            newsletter_data['executive_briefing'] = db_briefing['content'] if db_briefing else "Nincs vezetői összefoglaló"
+        
         print(f"✅ Kormányzati elemzés kész! ({len(processed_articles)} cikk feldolgozva)")
         return processed_articles, executive_briefing
     
@@ -404,10 +470,13 @@ class GovernmentEconomicAnalyzer:
         """
         analysis = article.get('ai_analysis', {})
         
+        # Magyar cím használata ha van AI elemzés
+        hungarian_title = analysis.get('hungarian_title') or article.get('title')
+        
         return {
             'id': article.get('id'),
-            'title': article.get('title'),
-            'original_title': article.get('original_title'),
+            'title': hungarian_title,  # Magyar cím
+            'original_title': article.get('original_title'),  # Angol cím
             'source': article.get('source'),
             'category': article.get('category'),
             'pub_date': article.get('pub_date'),

@@ -134,8 +134,27 @@
         
         .executive-briefing-content {
             white-space: pre-wrap;
-            line-height: 1.8;
+            line-height: 1.4;
             color: #424242;
+        }
+        
+        .executive-briefing-content h3,
+        .executive-briefing-content h4,
+        .executive-briefing-content h5 {
+            margin-top: 1.2em;
+            margin-bottom: 0.6em;
+            line-height: 1.4;
+        }
+        
+        .executive-briefing-content ul,
+        .executive-briefing-content ol {
+            margin-bottom: 0.8em;
+            line-height: 1.4;
+        }
+        
+        .executive-briefing-content li {
+            margin-bottom: 0.3em;
+            line-height: 1.4;
         }
         
         .articles-section h2 {
@@ -359,12 +378,15 @@
             background: #e3f2fd;
             color: #1565c0;
             border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 12px 24px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 0.9em;
+            font-size: 1em;
+            font-weight: 500;
             margin-top: 15px;
             transition: all 0.3s;
+            width: 100%;
+            max-width: 300px;
         }
         
         .toggle-details:hover {
@@ -430,7 +452,7 @@
         }
         
         .current-article-card {
-            background: white;
+            background: #f8f9fa;
             border: 1px solid #dee2e6;
             border-radius: 10px;
             padding: 1rem;
@@ -713,15 +735,37 @@
                     <div class="value" id="status">{{ data.processing_status or 'idle' }}</div>
                 </div>
             </div>
-            <button class="refresh-btn" onclick="refreshNews()">
-                🔄 Frissítés indítása
-            </button>
+            <div style="display: flex; gap: 15px;">
+                <button class="refresh-btn" onclick="refreshNews()">
+                    🔄 Frissítés indítása
+                </button>
+                <button class="refresh-btn" onclick="exportPDF()" style="background: #d32f2f;">
+                    📄 PDF Export
+                </button>
+            </div>
         </div>
         
         {% if data.executive_briefing %}
         <div class="executive-briefing">
             <h2>📋 Vezetői Összefoglaló</h2>
-            <div class="executive-briefing-content">{{ data.executive_briefing|safe }}</div>
+            <div class="executive-briefing-content" id="executive-summary">{{ data.executive_briefing|safe }}</div>
+            
+            <button class="toggle-details" onclick="toggleExecutiveDetails()" id="executive-toggle">
+                Szektorális napi elemzés ▼
+            </button>
+            
+            <div class="full-analysis" id="executive-details">
+                <div class="analysis-section">
+                    <h5>🏭 Szektorális Hatáselemzés</h5>
+                    <div class="analysis-grid" id="sectoral-summary">
+                        <!-- Dinamikusan töltődik JavaScript-tel -->
+                        <div class="analysis-box">
+                            <h6>⏳ Elemzés betöltése...</h6>
+                            <p>A szektorális elemzés betöltődik a részletes cikkelemzések alapján.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         {% endif %}
         
@@ -773,14 +817,25 @@
                         <div class="full-analysis" id="analysis-{{ article.id }}">
                             {% if article.full_analysis %}
                             <div class="analysis-grid">
+                                {% if article.full_analysis.geopolitical_context %}
+                                <div class="analysis-box">
+                                    <h6>🌍 Globális Makrogazdasági Hatások</h6>
+                                    <ul>
+                                        <li><strong>EU vonatkozások:</strong> {{ article.full_analysis.geopolitical_context.eu_relevance }}</li>
+                                        <li><strong>Regionális hatások:</strong> {{ article.full_analysis.geopolitical_context.regional_impact }}</li>
+                                        <li><strong>Globális trendek:</strong> {{ article.full_analysis.geopolitical_context.global_trends }}</li>
+                                    </ul>
+                                </div>
+                                {% endif %}
+                                
                                 {% if article.full_analysis.macro_impacts %}
                                 <div class="analysis-box">
-                                    <h6>Makrogazdasági hatások</h6>
+                                    <h6>🇭🇺 Magyarországi Makrogazdasági Hatások</h6>
                                     <ul>
-                                        <li>GDP: {{ article.full_analysis.macro_impacts.gdp_effect }}</li>
-                                        <li>Infláció: {{ article.full_analysis.macro_impacts.inflation_effect }}</li>
-                                        <li>Költségvetés: {{ article.full_analysis.macro_impacts.budget_effect }}</li>
-                                        <li>HUF árfolyam: {{ article.full_analysis.macro_impacts.currency_effect }}</li>
+                                        <li><strong>GDP:</strong> {{ article.full_analysis.macro_impacts.gdp_effect }}</li>
+                                        <li><strong>Infláció:</strong> {{ article.full_analysis.macro_impacts.inflation_effect }}</li>
+                                        <li><strong>Költségvetés:</strong> {{ article.full_analysis.macro_impacts.budget_effect }}</li>
+                                        <li><strong>HUF árfolyam:</strong> {{ article.full_analysis.macro_impacts.currency_effect }}</li>
                                     </ul>
                                 </div>
                                 {% endif %}
@@ -803,12 +858,12 @@
                                 {% endif %}
                             </div>
                             
-                            {% if article.full_analysis.policy_recommendations %}
+                            {% if article.full_analysis.policy_considerations %}
                             <div class="analysis-section">
-                                <h5>Szakpolitikai javaslatok</h5>
+                                <h5>Szakpolitikai megfontolások</h5>
                                 <ul>
-                                    {% for rec in article.full_analysis.policy_recommendations %}
-                                    <li>{{ rec }}</li>
+                                    {% for consideration in article.full_analysis.policy_considerations %}
+                                    <li>{{ consideration }}</li>
                                     {% endfor %}
                                 </ul>
                             </div>
@@ -867,7 +922,7 @@
     
     <!-- Aktuális Rövidhírek szekció -->
     <section class="current-news-section">
-        <h2 class="section-title">Gazdasági Alaphírek (RSS)</h2>
+        <h2 class="section-title">Elemzett Gazdasági Alaphírek</h2>
         <div class="current-articles-grid" id="currentArticlesGrid">
             <!-- RSS based articles will be loaded here -->
         </div>
@@ -949,10 +1004,13 @@
                 });
                 
                 if (response.ok) {
-                    // Várunk egy kicsit a feldolgozásra
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 3000);
+                    // Start auto-refresh to show real-time progress
+                    startAutoRefresh();
+                    
+                    // Update status immediately
+                    if (statusEl) {
+                        statusEl.textContent = 'Feldolgozás alatt...';
+                    }
                 } else {
                     alert('Hiba történt a frissítés során');
                     btn.disabled = false;
@@ -975,6 +1033,143 @@
             } else {
                 analysisEl.classList.add('show');
                 buttonEl.textContent = 'Részletes elemzés ▲';
+            }
+        }
+        
+        function toggleExecutiveDetails() {
+            const detailsEl = document.getElementById('executive-details');
+            const buttonEl = document.getElementById('executive-toggle');
+            
+            if (detailsEl.classList.contains('show')) {
+                detailsEl.classList.remove('show');
+                buttonEl.textContent = 'Szektorális napi elemzés ▼';
+            } else {
+                detailsEl.classList.add('show');
+                buttonEl.textContent = 'Szektorális napi elemzés ▲';
+                // Betöltjük a szektorális elemzést amikor megnyitják
+                loadSectoralAnalysis();
+            }
+        }
+        
+        async function loadSectoralAnalysis() {
+            try {
+                const response = await fetch('/api/articles');
+                const data = await response.json();
+                
+                if (data.articles && data.articles.length > 0) {
+                    // Összegyűjtjük az összes szektort
+                    const sectors = {};
+                    const employment = [];
+                    
+                    data.articles.forEach(article => {
+                        if (article.full_analysis && article.full_analysis.sectoral_analysis) {
+                            const sectoral = article.full_analysis.sectoral_analysis;
+                            
+                            // Érintett szektorok
+                            if (sectoral.affected_sectors) {
+                                sectoral.affected_sectors.forEach(sector => {
+                                    if (!sectors[sector]) {
+                                        sectors[sector] = [];
+                                    }
+                                    sectors[sector].push(article.title);
+                                });
+                            }
+                            
+                            // Munkaerőpiaci hatások
+                            if (sectoral.employment_impact && sectoral.employment_impact !== 'N/A') {
+                                employment.push(sectoral.employment_impact);
+                            }
+                        }
+                    });
+                    
+                    // HTML generálása
+                    let html = '';
+                    
+                    // Top 4 szektor
+                    const topSectors = Object.entries(sectors)
+                        .sort((a, b) => b[1].length - a[1].length)
+                        .slice(0, 4);
+                    
+                    if (topSectors.length > 0) {
+                        topSectors.forEach(([sector, articles]) => {
+                            html += `
+                                <div class="analysis-box">
+                                    <h6>${sector}</h6>
+                                    <p><strong>${articles.length} cikk érinti:</strong></p>
+                                    <p>${articles.slice(0, 2).join(', ')}${articles.length > 2 ? '...' : ''}</p>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    // Munkaerőpiaci hatások
+                    if (employment.length > 0) {
+                        html += `
+                            <div class="analysis-box">
+                                <h6>Munkaerőpiaci Hatások</h6>
+                                <p>${employment.slice(0, 2).join(' ')}</p>
+                            </div>
+                        `;
+                    }
+                    
+                    if (html) {
+                        document.getElementById('sectoral-summary').innerHTML = html;
+                    } else {
+                        document.getElementById('sectoral-summary').innerHTML = `
+                            <div class="analysis-box">
+                                <h6>Nincs szektorális adat</h6>
+                                <p>A mai hírekből még nem állnak rendelkezésre részletes szektorális elemzések.</p>
+                            </div>
+                        `;
+                    }
+                }
+            } catch (error) {
+                console.error('Szektorális elemzés betöltési hiba:', error);
+            }
+        }
+        
+        async function exportPDF() {
+            const btn = document.querySelector('button[onclick="exportPDF()"]');
+            btn.innerHTML = '⏳ PDF generálása...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/export-pdf');
+                
+                if (response.ok) {
+                    // PDF letöltés
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Kormanyzati_Szemle_${new Date().toISOString().slice(0,10)}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    btn.innerHTML = '✅ PDF letöltve!';
+                    setTimeout(() => {
+                        btn.innerHTML = '📄 PDF Export';
+                        btn.disabled = false;
+                    }, 3000);
+                } else {
+                    const error = await response.json();
+                    btn.innerHTML = '❌ Hiba történt';
+                    alert(`PDF export hiba: ${error.message || 'Ismeretlen hiba'}`);
+                    setTimeout(() => {
+                        btn.innerHTML = '📄 PDF Export';
+                        btn.disabled = false;
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('PDF export hiba:', error);
+                btn.innerHTML = '❌ Hiba történt';
+                alert('PDF export hiba: ' + error.message);
+                setTimeout(() => {
+                    btn.innerHTML = '📄 PDF Export';
+                    btn.disabled = false;
+                }, 3000);
             }
         }
         
@@ -1070,10 +1265,54 @@
             }
         }
         
+        // Auto-refresh function during processing
+        let autoRefreshInterval = null;
+        
+        function startAutoRefresh() {
+            if (autoRefreshInterval) return; // Already running
+            
+            autoRefreshInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/articles');
+                    const data = await response.json();
+                    
+                    // Update article count if changed
+                    const currentCount = document.querySelectorAll('.article').length;
+                    if (data.articles && data.articles.length !== currentCount) {
+                        console.log(`New articles available: ${data.articles.length}`);
+                        window.location.reload(); // Reload to show new articles
+                    }
+                    
+                    // Stop auto-refresh if processing completed
+                    if (data.processing_status !== 'processing') {
+                        stopAutoRefresh();
+                    }
+                } catch (error) {
+                    console.error('Auto-refresh error:', error);
+                }
+            }, 10000); // Check every 10 seconds
+        }
+        
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+        
         // RSS hírek betöltése az oldal betöltésekor
         document.addEventListener('DOMContentLoaded', function() {
             loadRSSArticles();
             loadRSSSources();
+            
+            // Start auto-refresh if processing
+            fetch('/api/articles')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.processing_status === 'processing') {
+                        startAutoRefresh();
+                    }
+                });
         });
     </script>
 </body>
