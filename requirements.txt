@@ -1,14 +1,10 @@
 flask==3.0.0
 flask-cors==4.0.0
 feedparser==6.0.11
-requests==2.31.0
+requests
 python-dotenv==1.0.0
-googletrans==3.0.0
-google-ai-generativelanguage==0.6.15
-google-api-core==2.24.2
-google-auth==2.40.2
-google-generativeai==0.8.5
-openai==1.81.0
+google-generativeai
+openai
 schedule==1.2.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
