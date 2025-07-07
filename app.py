@@ -209,9 +209,9 @@ def fetch_and_process_news():
                 if datetime.now() - pub_date > timedelta(days=2):
                     continue
                 
-                # Fordítás
-                translated_title = translate_text(title)
-                translated_description = translate_text(description)
+                # Egyelőre nem fordítunk - túl lassú a betöltéshez
+                translated_title = title  # translate_text(title)
+                translated_description = description  # translate_text(description)
                 
                 article = {
                     'id': generate_article_id(title, source['name']),
