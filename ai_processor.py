@@ -195,6 +195,16 @@ class GovernmentEconomicAnalyzer:
                 json_text = re.sub(r',(\s*[}\]])', r'\1', json_text)  # Remove trailing commas
                 json_text = re.sub(r'[\n\r\t]', ' ', json_text)  # Remove newlines
                 
+                # Fix truncated JSON - add missing closing braces
+                open_braces = json_text.count('{')
+                close_braces = json_text.count('}')
+                if open_braces > close_braces:
+                    json_text += '}' * (open_braces - close_braces)
+                
+                # Fix truncated strings - add missing quotes
+                if json_text.count('"') % 2 == 1:
+                    json_text += '"'
+                    
                 analysis = json.loads(json_text)
                 return analysis
             else:
