@@ -20,15 +20,13 @@ try:
     PDF_GENERATOR = 'pdfkit'
 except ImportError:
     pdfkit = None
+    PDF_GENERATOR = None
     
-try:
-    from weasyprint import HTML
-    PDF_GENERATOR = 'weasyprint'
-except ImportError:
-    HTML = None
+# WeasyPrint-et kikapcsoljuk production-ben
+HTML = None
     
-if not pdfkit and not HTML:
-    print("⚠️ Nincs PDF generátor! Telepítsd: pip install weasyprint")
+if not pdfkit:
+    print("⚠️ PDF export nem elérhető production környezetben")
 
 load_dotenv()
 
