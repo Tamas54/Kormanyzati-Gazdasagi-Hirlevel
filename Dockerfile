@@ -2,11 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Clean pip cache and install fresh
-COPY requirements.txt .
+# Install minimal requirements first
+COPY requirements_minimal.txt .
 RUN pip install --upgrade pip
 RUN pip cache purge
-RUN pip install --no-cache-dir --force-reinstall -r requirements.txt
+RUN pip install --no-cache-dir -r requirements_minimal.txt
 
 COPY . .
 
