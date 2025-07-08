@@ -77,8 +77,8 @@ def get_database_url():
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
         return database_url
     else:
-        # No database URL - run in memory mode
-        return None
+        # Use SQLite as fallback - works everywhere!
+        return 'sqlite:///gazdhirlevel.db'
 
 # Create engine
 database_url = get_database_url()
@@ -92,7 +92,7 @@ if database_url:
         engine = None
         SessionLocal = None
 else:
-    print("⚡ Memória módban fut - nincs adatbázis kapcsolat")
+    print("⚠️ Nincs adatbázis konfiguráció")
     engine = None
     SessionLocal = None
 
