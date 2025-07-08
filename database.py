@@ -77,16 +77,22 @@ def get_database_url():
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
         return database_url
     else:
-        # Local development fallback
-        return 'postgresql://localhost:5432/gazdhirlevel'
+        # No database URL - run in memory mode
+        return None
 
 # Create engine
-try:
-    engine = create_engine(get_database_url(), echo=False)
-    SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
-    print("✅ PostgreSQL kapcsolat létrehozva")
-except Exception as e:
-    print(f"❌ PostgreSQL kapcsolat hiba: {e}")
+database_url = get_database_url()
+if database_url:
+    try:
+        engine = create_engine(database_url, echo=False)
+        SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+        print("✅ PostgreSQL kapcsolat létrehozva")
+    except Exception as e:
+        print(f"❌ PostgreSQL kapcsolat hiba: {e}")
+        engine = None
+        SessionLocal = None
+else:
+    print("⚡ Memória módban fut - nincs adatbázis kapcsolat")
     engine = None
     SessionLocal = None
 
